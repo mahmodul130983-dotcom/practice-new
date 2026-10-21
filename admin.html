@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advanced Admin Dashboard</title>
+  
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+
+  <style>
+    :root {
+      --primary-color: #4f46e5;
+      --bg-color: #f8fafc;
+      --card-bg: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --border-color: #e2e8f0;
+    }
+
+    body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg-color); color: var(--text-main); padding: 30px 20px; margin: 0; }
+    .container { max-width: 1000px; margin: 0 auto; }
+    
+    .header-title { text-align: center; margin-bottom: 25px; }
+    .header-title h1 { font-size: 28px; font-weight: 800; color: var(--primary-color); margin-bottom: 5px; }
+
+    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px; }
+    .stat-card { background: var(--card-bg); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color); text-align: center; }
+    .stat-card h3 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; }
+    .stat-card .value { font-size: 24px; font-weight: 800; color: var(--primary-color); }
+
+    .search-box { margin-bottom: 20px; }
+    .search-box input { width: 100%; padding: 14px 18px; font-size: 15px; border: 2px solid var(--border-color); border-radius: 10px; outline: none; }
+    .search-box input:focus { border-color: var(--primary-color); }
+
+    .card { background: var(--card-bg); border-radius: 14px; padding: 22px; margin-bottom: 20px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
+    .card-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 12px; margin-bottom: 15px; }
+    .student-name { font-size: 18px; font-weight: 700; color: #1e293b; }
+    .score-badge { background: #e0e7ff; color: var(--primary-color); padding: 6px 16px; border-radius: 20px; font-weight: 800; }
+
+    .stats-row { display: flex; gap: 15px; font-size: 14px; margin-bottom: 18px; background: #f8fafc; padding: 10px 14px; border-radius: 8px; flex-wrap: wrap; }
+    
+    .section-title { font-weight: 700; margin: 12px 0 8px 0; font-size: 14px; }
+    .title-wrong { color: #dc2626; }
+    .title-skip { color: #d97706; }
+
+    .detail-item { padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; font-size: 14px; }
+    .item-wrong { background: #fef2f2; border-left: 4px solid #ef4444; }
+    .item-skip { background: #fffbeb; border-left: 4px solid #f59e0b; }
+    
+    .selected-ans { color: #dc2626; font-weight: 600; }
+    .correct-ans { color: #16a34a; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="header-title">
+      <h1>SUMU EXAM ADMIN DASHBOARD</h1>
+      <p>Real-time Exam Results & Detailed Question Analysis</p>
+    </div>
+
+    <div class="summary-grid">
+      <div class="stat-card"><h3>Total Students</h3><div class="value" id="total-students">0</div></div>
+      <div class="stat-card"><h3>Top Score</h3><div class="value" id="top-score">0</div></div>
+      <div class="stat-card"><h3>Average Score</h3><div class="value" id="avg-score">0</div></div>
+    </div>
+
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="🔍 Search student name..." onkeyup="filterResults()">
+    </div>
+
+    <div id="results-container">Loading student results...</div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCTgSqtcDRtvfbIECDFEv_2jAEgModArXc",
+      authDomain: "gk-exam-2.firebaseapp.com",
+      projectId: "gk-exam-2",
+      storageBucket: "gk-exam-2.firebasestorage.app",
+      messagingSenderId: "52008698353",
+      appId: "1:52008698353:web:08a24e1451711ab72f0450",
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    let allExamData = [];
+
+    db.collection("quiz_results 7").orderBy("time", "desc").get()
+    .then((querySnapshot) => {
+      allExamData = [];
+      querySnapshot.forEach(doc => allExamData.push(doc.data()));
+      calculateAnalytics(allExamData);
+      renderResults(allExamData);
+    });
+
+    function calculateAnalytics(data) {
+      document.getElementById('total-students').innerText = data.length;
+      if (!data.length) return;
+      const scores = data.map(d => parseFloat(d.score) || 0);
+      document.getElementById('top-score').innerText = Math.max(...scores).toFixed(2);
+      document.getElementById('avg-score').innerText = (scores.reduce((a,b)=>a+b,0)/data.length).toFixed(2);
+    }
+
+    function renderResults(dataList) {
+      const container = document.getElementById('results-container');
+      container.innerHTML = '';
+
+      if(!dataList.length) {
+        container.innerHTML = '<p style="text-align:center;">No exam records found!</p>';
+        return;
+      }
+
+      dataList.forEach(data => {
+        let wrongHTML = '', skipHTML = '';
+
+        if (data.wrongQuestions && data.wrongQuestions.length) {
+          data.wrongQuestions.forEach(item => {
+            wrongHTML += `
+              <div class="detail-item item-wrong">
+                <strong>${item.question}</strong>
+                <div>User Choice: <span class="selected-ans">${item.selectedAnswer}</span></div>
+                <div>Correct Answer: <span class="correct-ans">${item.correctAnswer}</span></div>
+              </div>`;
+          });
+        } else {
+          wrongHTML = '<p style="color:#16a34a; font-weight:600;">No wrong answers! 🎉</p>';
+        }
+
+        if (data.skippedQuestions && data.skippedQuestions.length) {
+          data.skippedQuestions.forEach(item => {
+            skipHTML += `
+              <div class="detail-item item-skip">
+                <strong>${item.question}</strong>
+                <div>Correct Answer: <span class="correct-ans">${item.correctAnswer}</span></div>
+              </div>`;
+          });
+        }
+
+        container.innerHTML += `
+          <div class="card">
+            <div class="card-header">
+              <div class="student-name">👤 ${data.name}</div>
+              <div class="score-badge">Score: ${data.score}</div>
+            </div>
+            <div class="stats-row">
+              <span>Correct: <strong style="color:#16a34a;">${data.correct}</strong></span>
+              <span>Wrong: <strong style="color:#dc2626;">${data.wrong}</strong></span>
+              <span>Skipped: <strong style="color:#d97706;">${data.skipped || 0}</strong></span>
+              <span>Date: ${data.time ? new Date(data.time.toDate()).toLocaleString('bn-BD') : 'N/A'}</span>
+            </div>
+            <div class="section-title title-wrong">❌ Wrong Questions List:</div>
+            ${wrongHTML}
+            ${skipHTML ? `<div class="section-title title-skip">⏭️ Skipped Questions List:</div>${skipHTML}` : ''}
+          </div>`;
+      });
+    }
+
+    function filterResults() {
+      const query = document.getElementById('search-input').value.toLowerCase().trim();
+      renderResults(allExamData.filter(d => d.name.toLowerCase().includes(query)));
+    }
+  </script>
+</body>
+</html>
